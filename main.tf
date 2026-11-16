@@ -26,21 +26,11 @@ resource "terraform_data" "production_requirements" {
       condition     = var.environment != "producao" || var.multi_az
       error_message = "Production requires multi_az=true for PostgreSQL."
     }
-    precondition {
-      condition     = var.environment != "producao" || var.docdb_instance_count >= 2
-      error_message = "Production requires at least two DocumentDB instances."
-    }
   }
 }
 
 resource "aws_db_subnet_group" "postgres" {
   name       = "${local.name}-postgres-subnets"
-  subnet_ids = var.private_subnet_ids
-  tags       = local.common_tags
-}
-
-resource "aws_docdb_subnet_group" "execution" {
-  name       = "${local.name}-execution-subnets"
   subnet_ids = var.private_subnet_ids
   tags       = local.common_tags
 }
@@ -59,7 +49,7 @@ resource "aws_security_group" "databases" {
   }
 
   ingress {
-    description     = "Execution DocumentDB from approved workloads"
+    description     = "Execution MongoDB traffic from approved workloads"
     from_port       = 27017
     to_port         = 27017
     protocol        = "tcp"
@@ -129,34 +119,6 @@ resource "aws_db_instance" "billing" {
   tags                      = merge(local.common_tags, { Service = "billing-service" })
 }
 
-resource "aws_docdb_cluster" "execution" {
-  cluster_identifier              = "${local.name}-execution"
-  engine                          = "docdb"
-  master_username                 = var.execution_db_username
-  master_password                 = var.execution_db_password
-  db_subnet_group_name            = aws_docdb_subnet_group.execution.name
-  db_cluster_parameter_group_name = var.docdb_cluster_parameter_group_name
-  vpc_security_group_ids          = [aws_security_group.databases.id]
-  storage_encrypted               = true
-  backup_retention_period         = var.backup_retention_period
-  preferred_backup_window         = var.docdb_preferred_backup_window
-  skip_final_snapshot             = false
-  final_snapshot_identifier       = "${local.name}-execution-final"
-  deletion_protection             = var.deletion_protection
-  apply_immediately               = false
-  tags                            = merge(local.common_tags, { Service = "execution-service" })
-}
-
-resource "aws_docdb_cluster_instance" "execution" {
-  count              = var.docdb_instance_count
-  identifier         = "${local.name}-execution-${count.index + 1}"
-  cluster_identifier = aws_docdb_cluster.execution.id
-  instance_class     = var.docdb_instance_class
-  engine             = aws_docdb_cluster.execution.engine
-  apply_immediately  = false
-  tags               = merge(local.common_tags, { Service = "execution-service" })
-}
-
 resource "aws_ssm_parameter" "os_connection_string" {
   name  = "/${var.project_name}/${var.environment}/database/os-connection-string"
   type  = "SecureString"
@@ -174,6 +136,6 @@ resource "aws_ssm_parameter" "billing_connection_string" {
 resource "aws_ssm_parameter" "execution_connection_string" {
   name  = "/${var.project_name}/${var.environment}/database/execution-connection-string"
   type  = "SecureString"
-  value = "mongodb://${var.execution_db_username}:${var.execution_db_password}@${aws_docdb_cluster.execution.endpoint}:27017/execution?tls=true&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false"
+  value = var.execution_mongodb_connection_string
   tags  = local.common_tags
 }

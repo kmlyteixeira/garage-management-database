@@ -99,51 +99,10 @@ variable "billing_db_password" {
   }
 }
 
-variable "execution_db_username" {
-  description = "Execution Service DocumentDB master username."
+variable "execution_mongodb_connection_string" {
+  description = "MongoDB connection string for the MongoDB service running in EKS."
   type        = string
-  default     = "execution_service"
-}
-
-variable "execution_db_password" {
-  description = "Execution Service DocumentDB password."
-  type        = string
-  sensitive   = true
-
-  validation {
-    condition     = length(var.execution_db_password) >= 16
-    error_message = "execution_db_password must contain at least 16 characters."
-  }
-}
-
-variable "docdb_instance_class" {
-  description = "DocumentDB instance class."
-  type        = string
-  default     = "db.t3.medium"
-}
-
-variable "docdb_instance_count" {
-  description = "Number of DocumentDB instances."
-  type        = number
-  default     = 1
-
-  validation {
-    condition     = var.docdb_instance_count >= 1
-    error_message = "docdb_instance_count must be at least 1."
-  }
-}
-
-variable "docdb_cluster_parameter_group_name" {
-  description = "Optional DocumentDB cluster parameter group."
-  type        = string
-  default     = null
-  nullable    = true
-}
-
-variable "docdb_preferred_backup_window" {
-  description = "DocumentDB backup window."
-  type        = string
-  default     = "03:00-03:30"
+  default     = "mongodb://mongodb.garage-microservices.svc.cluster.local:27017/execution?retryWrites=false"
 }
 
 variable "multi_az" {

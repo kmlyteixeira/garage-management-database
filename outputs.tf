@@ -33,24 +33,10 @@ output "postgres_port" {
   value       = 5432
 }
 
-output "execution_db_cluster_identifier" {
-  description = "Execution Service DocumentDB cluster identifier."
-  value       = aws_docdb_cluster.execution.cluster_identifier
-}
-
-output "execution_db_endpoint" {
-  description = "Execution Service DocumentDB writer endpoint."
-  value       = aws_docdb_cluster.execution.endpoint
-}
-
-output "execution_db_reader_endpoint" {
-  description = "Execution Service DocumentDB reader endpoint."
-  value       = aws_docdb_cluster.execution.reader_endpoint
-}
-
-output "execution_db_port" {
-  description = "DocumentDB port."
-  value       = aws_docdb_cluster.execution.port
+output "execution_mongodb_connection_string" {
+  description = "Internal MongoDB connection string used by the Execution Service."
+  value       = var.execution_mongodb_connection_string
+  sensitive   = true
 }
 
 output "database_security_group_id" {

@@ -42,9 +42,18 @@ jobs:
           echo "TF_VAR_api_security_group_id=$(aws ssm get-parameter --name "/garage-management/${TERRAFORM_ENVIRONMENT}/platform/workload-security-group-ids" --query Parameter.Value --output text | jq -r '.[0]')" >> "$GITHUB_ENV"
           echo "TF_VAR_workload_security_group_ids=$(aws ssm get-parameter --name "/garage-management/${TERRAFORM_ENVIRONMENT}/platform/workload-security-group-ids" --query Parameter.Value --output text)" >> "$GITHUB_ENV"
       - run: terraform init
+      - name: Remove legacy DocumentDB resources from state
+        run: |
+          for address in \
+            'aws_docdb_cluster.execution' \
+            'aws_docdb_cluster_instance.execution[0]' \
+            'aws_docdb_subnet_group.execution'; do
+            if terraform state show "$address" >/dev/null 2>&1; then
+              terraform state rm "$address"
+            fi
+          done
       - run: terraform plan -out=tfplan
         env:
           TF_VAR_os_db_password: ${{ secrets.OS_DB_PASSWORD }}
           TF_VAR_billing_db_password: ${{ secrets.BILLING_DB_PASSWORD }}
-          TF_VAR_execution_db_password: ${{ secrets.EXECUTION_DB_PASSWORD }}
       - run: terraform apply tfplan
