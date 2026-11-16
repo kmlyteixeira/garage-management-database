@@ -10,14 +10,11 @@ os_db_name           = "os_service"
 os_db_username       = "os_service"
 billing_db_name      = "billing_service"
 billing_db_username  = "billing_service"
-execution_db_username = "execution_service"
-docdb_instance_class = "db.t3.medium"
-docdb_instance_count = 2
 multi_az             = true
 backup_retention_period = 7
 deletion_protection = true
+execution_mongodb_connection_string = "mongodb://mongodb.garage-microservices.svc.cluster.local:27017/execution?retryWrites=false"
 
 # Never commit passwords. Supply:
 # TF_VAR_os_db_password
 # TF_VAR_billing_db_password
-# TF_VAR_execution_db_password

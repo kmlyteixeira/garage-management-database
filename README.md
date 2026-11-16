@@ -15,9 +15,10 @@ Management.
 ## Escopo e limite
 
 Provisiona dois RDS PostgreSQL 16 privados, um para o OS Service e outro para
-o Billing Service, e um cluster Amazon DocumentDB compatível com MongoDB para o
-Execution Service. Cada serviço mantém seu schema lógico; este repositório
-provisiona apenas a infraestrutura física, rede, backups e outputs.
+o Billing Service. O MongoDB do Execution Service é executado com volume
+persistente no EKS pela plataforma. Cada serviço mantém seu schema lógico; este
+repositório provisiona a infraestrutura PostgreSQL e publica a URI MongoDB no
+SSM.
 
 O banco legado do `api-dotnet` deve permanecer em um state/ambiente separado
 durante a transição. Não reutilize o mesmo database lógico dos microsserviços.
@@ -29,9 +30,9 @@ flowchart LR
 		VPC[VPC privada] --> SG[Security Group PostgreSQL]
 		SG --> OS[(RDS PostgreSQL OS)]
 		SG --> BILLING[(RDS PostgreSQL Billing)]
-		SG --> EXEC[(DocumentDB Execution)]
+		EKS --> EXEC[(MongoDB persistente)]
 		EKS[EKS workloads] -->|5432| SG
-		EKS -->|27017 TLS| SG
+		EKS -->|27017| EXEC
 		OS --> B[Backups e snapshots]
 		BILLING --> B
 		EXEC --> B
@@ -45,8 +46,8 @@ Este repositório não contém entidades nem migrations de aplicação.
 ## Variaveis Terraform
 
 Obrigatórias: `vpc_id`, `private_subnet_ids`, `api_security_group_id`,
-`workload_security_group_ids`, `os_db_password`, `billing_db_password` e
-`execution_db_password`. O restante possui defaults documentados em
+`workload_security_group_ids`, `os_db_password` e `billing_db_password`. O
+restante possui defaults documentados em
 `variables.tf`:
 
 ```bash
@@ -58,13 +59,16 @@ terraform plan \
 	-var='api_security_group_id=sg-0123456789abcdef0' \
 	-var='os_db_password=...'
 	-var='billing_db_password=...'
-	-var='execution_db_password=...'
 ```
 
 As senhas são valores aleatórios de exemplo apenas para desenvolvimento e nunca
-devem ser reutilizadas. Em CI/CD, injete os três `TF_VAR_*_db_password` por
+devem ser reutilizadas. Em CI/CD, injete os dois `TF_VAR_*_db_password` por
 secrets externos. Para produção, use Secrets Manager/rotação e
 `multi_az=true`.
+
+O Execution Service usa o MongoDB persistente executado no EKS pela plataforma.
+A variável `execution_mongodb_connection_string` aponta para o DNS interno do
+Service Kubernetes e não exige um secret de senha separado.
 
 O arquivo [production-secrets.example.env](production-secrets.example.env)
 mostra os nomes esperados das variáveis sem conter credenciais reais.
@@ -102,8 +106,7 @@ Configure no repositório:
 - Variable `TERRAFORM_ENVIRONMENT`, com o mesmo valor usado no `infra`.
 - Variable `TF_STATE_BUCKET`, igual ao configurado no `infra`.
 - Secrets `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`.
-- Secrets `OS_DB_PASSWORD`, `BILLING_DB_PASSWORD` e
-  `EXECUTION_DB_PASSWORD`.
+- Secrets `OS_DB_PASSWORD` e `BILLING_DB_PASSWORD`.
 
 O workflow busca automaticamente no SSM os parâmetros publicados pelo
 `garage-management-infra`. O apply do banco deve ocorrer depois do apply da
@@ -140,17 +143,15 @@ O ambiente de produção exige:
 - `workload_security_group_ids` contendo o security group dos nodes/workloads do
   EKS;
 - `multi_az=true` para PostgreSQL;
-- `docdb_instance_count >= 2`;
-- três secrets independentes;
-- rotação por Secrets Manager ou mecanismo equivalente;
-- TLS para a conexão do Execution Service ao DocumentDB.
+- armazenamento persistente para o MongoDB no EKS;
+- política de backup e recuperação do volume persistente;
+- autenticação e TLS para ambientes fora do laboratório.
 
 Outputs principais:
 
 - `os_db_endpoint`;
 - `billing_db_endpoint`;
-- `execution_db_endpoint`;
-- `execution_db_reader_endpoint`;
+- `execution_mongodb_connection_string`;
 - `database_security_group_id`.
 
 ## Entrega
