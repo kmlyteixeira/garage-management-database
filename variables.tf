@@ -37,8 +37,14 @@ variable "private_subnet_ids" {
 }
 
 variable "api_security_group_id" {
-  description = "Security group allowed to connect to PostgreSQL."
+  description = "Legacy/API security group allowed during migration."
   type        = string
+}
+
+variable "workload_security_group_ids" {
+  description = "EKS/node security groups allowed to access service databases."
+  type        = list(string)
+  default     = []
 }
 
 variable "db_instance_class" {
@@ -47,22 +53,97 @@ variable "db_instance_class" {
   default     = "db.t3.micro"
 }
 
-variable "db_name" {
-  description = "Initial PostgreSQL database name."
+variable "os_db_name" {
+  description = "OS Service PostgreSQL database name."
   type        = string
-  default     = "GarageManagement"
+  default     = "os_service"
 }
 
-variable "db_username" {
-  description = "Master username. Prefer Secrets Manager-managed credentials in production."
+variable "os_db_username" {
+  description = "OS Service PostgreSQL master username."
   type        = string
-  default     = "garage_user"
+  default     = "os_service"
 }
 
-variable "db_password" {
-  description = "Master password supplied through an external secret or CI variable."
+variable "os_db_password" {
+  description = "OS Service PostgreSQL password supplied through an external secret or CI variable."
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = length(var.os_db_password) >= 16
+    error_message = "os_db_password must contain at least 16 characters."
+  }
+}
+
+variable "billing_db_name" {
+  description = "Billing Service PostgreSQL database name."
+  type        = string
+  default     = "billing_service"
+}
+
+variable "billing_db_username" {
+  description = "Billing Service PostgreSQL master username."
+  type        = string
+  default     = "billing_service"
+}
+
+variable "billing_db_password" {
+  description = "Billing Service PostgreSQL password."
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = length(var.billing_db_password) >= 16
+    error_message = "billing_db_password must contain at least 16 characters."
+  }
+}
+
+variable "execution_db_username" {
+  description = "Execution Service DocumentDB master username."
+  type        = string
+  default     = "execution_service"
+}
+
+variable "execution_db_password" {
+  description = "Execution Service DocumentDB password."
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = length(var.execution_db_password) >= 16
+    error_message = "execution_db_password must contain at least 16 characters."
+  }
+}
+
+variable "docdb_instance_class" {
+  description = "DocumentDB instance class."
+  type        = string
+  default     = "db.t3.medium"
+}
+
+variable "docdb_instance_count" {
+  description = "Number of DocumentDB instances."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.docdb_instance_count >= 1
+    error_message = "docdb_instance_count must be at least 1."
+  }
+}
+
+variable "docdb_cluster_parameter_group_name" {
+  description = "Optional DocumentDB cluster parameter group."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "docdb_preferred_backup_window" {
+  description = "DocumentDB backup window."
+  type        = string
+  default     = "03:00-03:30"
 }
 
 variable "multi_az" {
