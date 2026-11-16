@@ -1,36 +1,53 @@
 # Garage Management Database
 
-Repositorio Terraform do banco gerenciado PostgreSQL do Garage Management.
+Repositorio Terraform da persistência gerenciada dos microsserviços do Garage
+Management.
 
 ## Repositorios da solucao
 
-- [API principal, DbContext e migrations](https://github.com/kmlyteixeira/garage-management-api-dotnet)
+- [OS Service](../garage-management-os-service)
+- [Billing Service](../garage-management-billing-service)
+- [Execution Service](../garage-management-execution-service)
 - [Lambda de autenticacao](https://github.com/kmlyteixeira/garage-management-lambda)
 - [Infraestrutura EKS/API Gateway](https://github.com/kmlyteixeira/garage-management-infra)
 - [Infraestrutura RDS PostgreSQL](https://github.com/kmlyteixeira/garage-management-database)
 
 ## Escopo e limite
 
-Provisiona RDS PostgreSQL 16 privado, subnet group com pelo menos duas zonas, security group restrito a origem da API, armazenamento criptografado, backups automaticos, crescimento de storage, snapshots finais, tags e protecao contra delecao. O DbContext, modelo relacional, DbMigrator e migrations EF Core permanecem na [API principal](https://github.com/kmlyteixeira/garage-management-api-dotnet/tree/main/src/GarageManagement.EntityFrameworkCore); este repositorio nao duplica schema.
+Provisiona dois RDS PostgreSQL 16 privados, um para o OS Service e outro para
+o Billing Service, e um cluster Amazon DocumentDB compatível com MongoDB para o
+Execution Service. Cada serviço mantém seu schema lógico; este repositório
+provisiona apenas a infraestrutura física, rede, backups e outputs.
+
+O banco legado do `api-dotnet` deve permanecer em um state/ambiente separado
+durante a transição. Não reutilize o mesmo database lógico dos microsserviços.
 
 ## Arquitetura
 
 ```mermaid
 flowchart LR
 		VPC[VPC privada] --> SG[Security Group PostgreSQL]
-		SG --> RDS[(RDS PostgreSQL 16)]
-		API[EKS / API .NET] -->|TCP 5432| SG
-		AUTH[Lambda Auth] -->|consulta somente leitura| RDS
-		RDS --> B[Backup automatico e snapshot final]
+		SG --> OS[(RDS PostgreSQL OS)]
+		SG --> BILLING[(RDS PostgreSQL Billing)]
+		SG --> EXEC[(DocumentDB Execution)]
+		EKS[EKS workloads] -->|5432| SG
+		EKS -->|27017 TLS| SG
+		OS --> B[Backups e snapshots]
+		BILLING --> B
+		EXEC --> B
 ```
 
 ## Modelo e consistencia
 
-O modelo de negocio e mantido pelo EF Core e documentado em [ER model](https://github.com/kmlyteixeira/garage-management-api-dotnet/blob/main/docs/architecture/er-model.puml). As principais relacoes sao Cliente-Veiculo, Cliente-OrdemDeServico, OrdemDeServico-Orcamento, OrdemDeServico-Item e Item-Peca/Servico. Chaves estrangeiras, enums de status, indices para consulta publica e transacoes de abertura/aprovacao protegem consistencia; o DbMigrator aplica alteracoes versionadas antes da API iniciar.
+Cada microsserviço mantém seu modelo lógico e suas migrações/evolução de schema.
+Este repositório não contém entidades nem migrations de aplicação.
 
 ## Variaveis Terraform
 
-Obrigatorias: `vpc_id`, `private_subnet_ids`, `api_security_group_id` e `db_password`. O restante possui defaults documentados em `variables.tf`:
+Obrigatórias: `vpc_id`, `private_subnet_ids`, `api_security_group_id`,
+`workload_security_group_ids`, `os_db_password`, `billing_db_password` e
+`execution_db_password`. O restante possui defaults documentados em
+`variables.tf`:
 
 ```bash
 terraform init
@@ -39,10 +56,18 @@ terraform plan \
 	-var='vpc_id=vpc-0123456789abcdef0' \
 	-var='private_subnet_ids=["subnet-0123456789abcde01","subnet-0123456789abcde02"]' \
 	-var='api_security_group_id=sg-0123456789abcdef0' \
-	-var='db_password=Gm9!rT4#vQ7@pL2'
+	-var='os_db_password=...'
+	-var='billing_db_password=...'
+	-var='execution_db_password=...'
 ```
 
-A senha e um valor aleatorio de exemplo para desenvolvimento e nunca deve ser reutilizada. Em CI/CD, injete `TF_VAR_db_password` por secret externo. Para producao, use Secrets Manager/rotacao e `multi_az=true`.
+As senhas são valores aleatórios de exemplo apenas para desenvolvimento e nunca
+devem ser reutilizadas. Em CI/CD, injete os três `TF_VAR_*_db_password` por
+secrets externos. Para produção, use Secrets Manager/rotação e
+`multi_az=true`.
+
+O arquivo [production-secrets.example.env](production-secrets.example.env)
+mostra os nomes esperados das variáveis sem conter credenciais reais.
 
 ## Defaults e operacao
 
@@ -62,14 +87,71 @@ terraform output
 ## CI/CD e seguranca
 
 - `terraform.yml` executa fmt/validate/plan em Pull Requests.
-- `apply.yml` aplica mudancas com aprovacao do Environment e credenciais AWS protegidas/OIDC.
-- `main`/`master` e protegida, sem commits diretos; merge por Pull Request aprovado e checks obrigatorios.
-- `develop` e homologacao; `main` e producao, com state remoto e workspace separados.
+- `apply.yml` carrega VPC, subnets e security group do SSM publicado pelo
+  `garage-management-infra` e aplica somente no `master`.
+- Os endpoints e strings de conexão são publicados como parâmetros
+  `SecureString` no SSM para consumo pelos microsserviços.
+- `master` e a branch de apply do AWS Academy; o state usa S3.
 - Nunca versionar senha, `.tfvars` real, dumps ou dados pessoais. Restrinja IAM e registre auditoria no CloudTrail.
+
+## GitHub Environment `aws-lab`
+
+Configure no repositório:
+
+- Variable `AWS_REGION`, por exemplo `us-east-1`.
+- Variable `TERRAFORM_ENVIRONMENT`, com o mesmo valor usado no `infra`.
+- Variable `TF_STATE_BUCKET`, igual ao configurado no `infra`.
+- Secrets `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`.
+- Secrets `OS_DB_PASSWORD`, `BILLING_DB_PASSWORD` e
+  `EXECUTION_DB_PASSWORD`.
+
+O workflow busca automaticamente no SSM os parâmetros publicados pelo
+`garage-management-infra`. O apply do banco deve ocorrer depois do apply da
+plataforma.
 
 ## Observabilidade e recuperacao
 
 Monitore CPU, memoria, conexoes, storage, IOPS, latencia, erros de conexao e eventos de failover no CloudWatch. Crie alarmes para storage acima de 80%, conexoes acima do limite, replica lag quando aplicavel e falha de backup. Teste restauracao a partir de snapshot periodicamente e documente RPO/RTO por ambiente.
+
+## Cenário local
+
+O cenário local não usa Terraform nem AWS. Ele sobe os mesmos limites de
+persistência dos serviços com Docker Compose:
+
+```powershell
+docker compose -f docker-compose.local.yml up -d
+.\scripts\validate-local.ps1
+docker compose -f docker-compose.local.yml down
+```
+
+Conexões locais:
+
+```text
+OS:        Host=localhost;Port=5432;Database=os_service;Username=garage;Password=garage
+Billing:   Host=localhost;Port=5433;Database=billing_service;Username=garage;Password=garage
+Execution: mongodb://localhost:27017/execution_service
+```
+
+## Produção
+
+O ambiente de produção exige:
+
+- duas subnets privadas em zonas distintas;
+- `workload_security_group_ids` contendo o security group dos nodes/workloads do
+  EKS;
+- `multi_az=true` para PostgreSQL;
+- `docdb_instance_count >= 2`;
+- três secrets independentes;
+- rotação por Secrets Manager ou mecanismo equivalente;
+- TLS para a conexão do Execution Service ao DocumentDB.
+
+Outputs principais:
+
+- `os_db_endpoint`;
+- `billing_db_endpoint`;
+- `execution_db_endpoint`;
+- `execution_db_reader_endpoint`;
+- `database_security_group_id`.
 
 ## Entrega
 

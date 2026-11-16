@@ -1,6 +1,8 @@
 name: Database Apply
 
 on:
+  push:
+    branches: [master]
   workflow_dispatch:
     inputs:
       environment:
@@ -12,21 +14,37 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   apply:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: aws-lab
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      TERRAFORM_ENVIRONMENT: ${{ vars.TERRAFORM_ENVIRONMENT }}
+      TF_CLI_ARGS_init: "-backend-config=bucket=${{ vars.TF_STATE_BUCKET }} -backend-config=key=database/terraform.tfstate -backend-config=region=${{ vars.AWS_REGION }} -backend-config=use_lockfile=true"
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ vars.AWS_REGION }}
+      - name: Load platform parameters
+        run: |
+          echo "TF_VAR_environment=${TERRAFORM_ENVIRONMENT}" >> "$GITHUB_ENV"
+          echo "TF_VAR_project_name=garage-management" >> "$GITHUB_ENV"
+          echo "TF_VAR_region=${AWS_REGION}" >> "$GITHUB_ENV"
+          echo "TF_VAR_vpc_id=$(aws ssm get-parameter --name "/garage-management/${TERRAFORM_ENVIRONMENT}/platform/vpc-id" --query Parameter.Value --output text)" >> "$GITHUB_ENV"
+          echo "TF_VAR_private_subnet_ids=$(aws ssm get-parameter --name "/garage-management/${TERRAFORM_ENVIRONMENT}/platform/private-subnet-ids" --query Parameter.Value --output text)" >> "$GITHUB_ENV"
+          echo "TF_VAR_api_security_group_id=$(aws ssm get-parameter --name "/garage-management/${TERRAFORM_ENVIRONMENT}/platform/workload-security-group-ids" --query Parameter.Value --output text | jq -r '.[0]')" >> "$GITHUB_ENV"
+          echo "TF_VAR_workload_security_group_ids=$(aws ssm get-parameter --name "/garage-management/${TERRAFORM_ENVIRONMENT}/platform/workload-security-group-ids" --query Parameter.Value --output text)" >> "$GITHUB_ENV"
       - run: terraform init
       - run: terraform plan -out=tfplan
         env:
-          TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+          TF_VAR_os_db_password: ${{ secrets.OS_DB_PASSWORD }}
+          TF_VAR_billing_db_password: ${{ secrets.BILLING_DB_PASSWORD }}
+          TF_VAR_execution_db_password: ${{ secrets.EXECUTION_DB_PASSWORD }}
       - run: terraform apply tfplan
