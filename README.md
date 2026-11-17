@@ -153,9 +153,3 @@ Outputs principais:
 - `billing_db_endpoint`;
 - `execution_mongodb_connection_string`;
 - `database_security_group_id`.
-
-## Entrega
-
-- [API, Swagger e migrations](https://github.com/kmlyteixeira/garage-management-api-dotnet)
-- [Plataforma EKS/API Gateway](https://github.com/kmlyteixeira/garage-management-infra)
-- [Lambda de autenticacao](https://github.com/kmlyteixeira/garage-management-lambda)
